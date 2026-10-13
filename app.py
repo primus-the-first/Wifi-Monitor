@@ -14,6 +14,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -82,13 +83,60 @@ async def read_json(request):
 
 @app.get("/healthz")
 def healthz():
-    """For Render's health check and for keeping the server awake. Reports whether the database answers."""
+    """For Render's health check: is the server process up? (The database is checked at /dbcheck, so a
+    wrong database address can't stop the deploy from going live, and you can still read the reason.)"""
+    return {"ok": True}
+
+
+def _redact(text):
+    """Removes the database address and password from an error message before it is logged."""
+    url = os.environ.get("DATABASE_URL", "")
+    secrets = {url}
+    try:
+        password = urlsplit(url).password
+        if password:
+            secrets |= {password, unquote(password)}
+    except ValueError:
+        pass
+    for secret in sorted(secrets, key=len, reverse=True):
+        if secret:
+            text = text.replace(secret, "***")
+    return text
+
+
+HINTS = (
+    ("must start with", "DATABASE_URL must start with postgresql:// . Paste the whole address from Supabase: Connect, Session pooler."),
+    ("failed to resolve host", "The host name in DATABASE_URL can't be found. Copy it again from Supabase: Connect, Session pooler."),
+    ("tenant or user not found","The user name doesn't match this Supabase project. Copy the Session pooler address again from Connect."),
+    ("password authentication failed", "The database password is wrong, or has characters that must be URL-encoded. Reset it to letters and numbers only, then update DATABASE_URL."),
+    ("translate host name", "The host name in DATABASE_URL isn't valid. Copy it again from Supabase: Connect, Session pooler."),
+    ("name or service not known", "The host name in DATABASE_URL isn't valid. Copy it again from Supabase: Connect, Session pooler."),
+    ("network is unreachable", "Render can't reach that address. It's probably the Direct connection (IPv6 only). Use the Session pooler address."),
+    ("timeout", "The database didn't answer in time. Check the address, and that the Supabase project isn't paused."),
+    ("prepared statement", "Use the Session pooler (port 5432), not the Transaction pooler (port 6543)."),
+    ("invalid", "DATABASE_URL isn't a valid address. Check that you pasted the whole thing and replaced [YOUR-PASSWORD]."),
+    ("missing", "DATABASE_URL isn't a valid address. Check that you pasted the whole thing and replaced [YOUR-PASSWORD]."),
+)
+
+
+@app.get("/dbcheck")
+def dbcheck():
+    """Tells you whether the database works and, if not, why (nothing secret is shown)."""
+    if os.environ.get("RENDER") and not os.environ.get("DATABASE_URL"):
+        return JSONResponse({"ok": False, "hint": "DATABASE_URL is not set. Without it the data would be lost on every restart. "
+                             "Add it under Render, Environment."}, status_code=503)
     try:
         with db().tx() as tx:
             tx.execute("SELECT 1")
+        if os.environ.get("RENDER") and db().kind == "sqlite":
+            return JSONResponse({"ok": False, "hint": "The server is using a local file, which Render wipes on every restart. "
+                                 "Set DATABASE_URL to your Supabase address."}, status_code=503)
         return {"ok": True, "db": db().kind}
     except Exception as e:
-        return JSONResponse({"ok": False, "error": type(e).__name__}, status_code=503)
+        message = _redact(str(e))
+        print(f"dbcheck: database error: {type(e).__name__}: {message[:400]}", flush=True)
+        hint = next((h for key, h in HINTS if key in message.lower()), "Check DATABASE_URL under Render, Environment.")
+        return JSONResponse({"ok": False, "error": type(e).__name__, "hint": hint}, status_code=503)
 
 
 @app.post("/api/sync")

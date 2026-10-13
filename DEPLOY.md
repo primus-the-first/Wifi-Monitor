@@ -26,8 +26,9 @@ Check each provider's current free-plan terms before relying on them.
    - `DATABASE_URL`: the address from step 1
    - `ADMIN_PASSWORD`: a password you choose (the admin page's user name is `admin`)
    - `AGENT_KEY` is generated for you. After the first deploy, copy it from the service's *Environment* tab.
-4. **Check it.** Open `https://YOUR-SERVICE.onrender.com/healthz`. It should say `{"ok":true,"db":"postgres"}`.
-   (The very first request after a sleep takes about a minute.)
+4. **Check it.** Open `https://YOUR-SERVICE.onrender.com/dbcheck`. It should say `{"ok":true,"db":"postgres"}`.
+   (The very first request after a sleep takes about a minute.) If it says `"ok":false`, the `hint` line says what to fix
+   (usually `DATABASE_URL`). After changing it, Render redeploys by itself. `/healthz` only says the server is running.
 5. **Connect each laptop.** Run once on each laptop (it asks for administrator approval), then restart the app:
 
    ```

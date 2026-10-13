@@ -35,7 +35,10 @@ class Tx:
 
 class DB:
     def __init__(self, url=None):
-        url = url or os.environ.get("DATABASE_URL") or "sqlite:///server.db"
+        url = (url or os.environ.get("DATABASE_URL") or "sqlite:///server.db").strip().strip("'\"").strip()
+        if not url.startswith(("postgres://", "postgresql://", "sqlite:///")):
+            # never guess: an address pasted without its start would otherwise become a local file name
+            raise ValueError("DATABASE_URL must start with postgresql:// (or sqlite:/// for local tests)")
         self.postgres = url.startswith(("postgres://", "postgresql://"))
         if self.postgres:
             self._url = url
