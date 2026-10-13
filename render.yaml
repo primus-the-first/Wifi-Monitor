@@ -1,0 +1,19 @@
+# Render blueprint. Use it when this folder's contents are the root of their own GitHub repo.
+# (If you push the whole project instead, add `rootDir: server` under the service.)
+services:
+  - type: web
+    name: hotspot-caps
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: AGENT_KEY          # the secret the laptops send; Render makes one for you
+        generateValue: true
+      - key: ADMIN_PASSWORD     # you type this in the Render dashboard
+        sync: false
+      - key: DATABASE_URL       # the Postgres address from Supabase or Neon
+        sync: false

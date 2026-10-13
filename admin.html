@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hotspot Caps</title>
+<style>
+  :root {
+    --bg: #080c16; --panel: #0f1626; --panel2: #16203a; --line: #25314f; --track: #1b2640;
+    --text: #e6ecf8; --muted: #7a89a8; --cyan: #22d3ee; --violet: #8b5cf6;
+    --green: #34d399; --amber: #fbbf24; --red: #fb4d6a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 "Bahnschrift", "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: .04em; }
+  h1 span { color: var(--cyan); }
+  h2 { font-size: 12px; margin: 26px 0 8px; color: var(--muted); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--cyan); padding: 12px 16px; }
+  .card.v { border-top-color: var(--violet); }
+  .bar-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 14px; }
+  select, input { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); padding: 6px 10px; }
+  input[type=number] { width: 90px; }
+  input[type=checkbox] { width: auto; accent-color: var(--cyan); }
+  button { font: inherit; font-size: 13px; cursor: pointer; color: var(--text); background: var(--panel2);
+           border: 1px solid var(--line); padding: 5px 12px; }
+  button:hover { border-color: var(--cyan); color: var(--cyan); }
+  .chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border: 1px solid; white-space: nowrap; }
+  .chip.on { color: var(--green); } .chip.off { color: var(--muted); } .chip.blocked { color: var(--red); }
+  .chip.free { color: #a78bfa; } .chip.warn { color: var(--amber); }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 11px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; font-weight: 700; }
+  tr:last-child td { border-bottom: none; }
+  .meter { height: 8px; background: var(--track); margin-top: 5px; min-width: 130px; }
+  .meter > i { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan), var(--violet)); }
+  .meter.warn > i { background: linear-gradient(90deg, var(--amber), #fb923c); }
+  .meter.bad > i { background: linear-gradient(90deg, var(--red), #f43f5e); }
+  .history { display: flex; gap: 10px; align-items: flex-end; height: 130px; padding: 12px 16px; }
+  .history div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
+  .history i { display: block; width: 100%; max-width: 52px; background: linear-gradient(180deg, var(--cyan), var(--violet)); min-height: 2px; }
+  .history span { font-size: 11px; color: var(--muted); }
+  .alert { border-color: var(--amber); color: var(--amber); margin-top: 12px; }
+  .empty { padding: 18px 16px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span>◈</span> HOTSPOT CAPS <span class="muted" style="letter-spacing:0">· online</span></h1>
+    <span class="muted" id="clock">connecting…</span>
+  </header>
+
+  <div class="card v bar-row" style="margin-top:16px">
+    <label class="muted" for="net">NETWORK</label>
+    <select id="net"></select>
+    <label><input type="checkbox" id="enforce"> Enforce the daily cap on this network</label>
+    <span style="flex:1"></span>
+    <label class="muted" for="cap">DAILY CAP / DEVICE</label>
+    <input id="cap" type="number" min="1" step="100"> <span class="muted">MB</span>
+    <button id="saveCap">Save</button>
+  </div>
+  <div id="alert"></div>
+
+  <h2>Hosting now</h2>
+  <div class="card scroll"><table><thead><tr><th>Laptop</th><th>Network</th><th>Devices</th><th>Mode</th><th>Last seen</th></tr></thead>
+    <tbody id="agents"></tbody></table></div>
+
+  <h2>Devices on this network</h2>
+  <div class="card scroll"><table><thead><tr><th>Device</th><th>Used (<span id="day"></span>)</th><th>7 days</th><th>All time</th><th>Status</th><th></th></tr></thead>
+    <tbody id="devices"></tbody></table></div>
+
+  <h2>Last 7 days, all devices on this network</h2>
+  <div class="card history" id="history"></div>
+</main>
+<script>
+  const size = b => b >= 1e9 ? (b / 1e9).toFixed(2).replace(/\.?0+$/, "") + " GB" : (b / 1e6).toFixed(b < 1e7 ? 1 : 0) + " MB";
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const ago = iso => { const s = Math.max(0, (Date.now() - Date.parse(iso + "Z")) / 1000);
+    return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago"; };
+  let view = "", state = null, capEdited = false;
+
+  async function post(kind, body) {
+    const r = await fetch("/api/admin/" + kind, { method: "POST", body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json", "X-Wifimon": "1" } });
+    if (!r.ok) alert("That didn't work (" + r.status + ").");
+    refresh();
+  }
+
+  function render(s) {
+    state = s; view = s.view;
+    document.getElementById("clock").textContent = "usage day " + s.day + " · updated " + new Date().toLocaleTimeString();
+    document.getElementById("day").textContent = s.day.slice(5);
+    const net = document.getElementById("net");
+    if (document.activeElement !== net) {
+      net.innerHTML = s.networks.map(n => `<option value="${esc(n.gateway)}">${esc(n.name)}${n.hosted ? "  ● hosted now" : ""}</option>`).join("");
+      net.value = s.view;
+    }
+    const cur = s.networks.find(n => n.gateway === s.view);
+    document.getElementById("enforce").checked = !!(cur && cur.enforce);
+    if (!capEdited) document.getElementById("cap").value = Math.round(s.cap / 1e6);
+
+    const live = s.agents.filter(a => a.active);
+    const byNet = {}; live.forEach(a => byNet[a.network] = (byNet[a.network] || 0) + 1);
+    const dup = Object.entries(byNet).find(([, n]) => n > 1);
+    document.getElementById("alert").innerHTML = dup
+      ? `<div class="card alert">Two laptops are hosting “${esc(dup[0])}” at the same time. Counting stays correct, but turn one hotspot off so devices don't hop between them.</div>` : "";
+    document.getElementById("agents").innerHTML = s.agents.map(a => `<tr>
+      <td><b>${esc(a.name)}</b></td><td>${esc(a.network || "–")}</td><td>${a.devices}${a.blocked ? ` · ${a.blocked} cut off` : ""}</td>
+      <td>${a.free ? '<span class="chip free">free window</span>' : a.enforce ? '<span class="chip on">caps</span>' : '<span class="chip off">monitoring</span>'}</td>
+      <td>${a.active ? '<span class="chip on">online</span> ' : ""}<span class="muted">${ago(a.last_seen)}</span></td></tr>`).join("")
+      || '<tr><td colspan="5" class="empty">No laptop has connected yet.</td></tr>';
+
+    const enforce = !!(cur && cur.enforce);
+    document.getElementById("devices").innerHTML = s.devices.map(d => {
+      const pct = Math.min(100, d.used / s.cap * 100), cls = d.blocked ? "bad" : pct >= 80 ? "warn" : "";
+      const status = d.blocked ? '<span class="chip blocked">cut off</span>' : d.online ? '<span class="chip on">online</span>'
+        : `<span class="chip off">${d.last_day ? "last " + d.last_day.slice(5) : "no usage"}</span>`;
+      return `<tr><td><b>${esc(d.name || "Unnamed device")}</b><div class="muted mono">${esc(d.ip)} ${esc(d.mac)}</div></td>
+        <td>${size(d.used)} ${enforce ? `<span class="muted">of ${size(s.cap)}</span><div class="meter ${cls}"><i style="width:${pct}%"></i></div>` : ""}</td>
+        <td>${size(d.week)}</td><td>${size(d.total)}</td><td>${status}</td>
+        <td style="white-space:nowrap"><button data-act="rename" data-mac="${esc(d.mac)}" data-name="${esc(d.name)}">Rename</button>
+          <button data-act="reset" data-mac="${esc(d.mac)}">Reset today</button></td></tr>`;
+    }).join("") || '<tr><td colspan="6" class="empty">No devices on this network yet.</td></tr>';
+
+    const max = Math.max(1, ...s.history.map(h => h.total));
+    document.getElementById("history").innerHTML = s.history.map(h =>
+      `<div title="${size(h.total)}"><span>${size(h.total)}</span><i style="height:${h.total / max * 70}%"></i><span>${h.day.slice(5)}</span></div>`).join("")
+      || '<div class="empty">No usage recorded yet.</div>';
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch("/api/state?network=" + encodeURIComponent(view));
+      if (r.status === 401) return location.reload();
+      render(await r.json());
+    } catch { document.getElementById("clock").textContent = "server unreachable - retrying…"; }
+  }
+
+  document.getElementById("net").addEventListener("change", e => { view = e.target.value; e.target.blur(); refresh(); });
+  document.getElementById("enforce").addEventListener("change", e => post("enforce", { gateway: view, enforce: e.target.checked }));
+  document.getElementById("cap").addEventListener("input", () => capEdited = true);
+  document.getElementById("saveCap").addEventListener("click", () => { capEdited = false; post("cap", { cap_mb: Number(document.getElementById("cap").value) }); });
+  document.getElementById("devices").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.act === "rename") { const name = prompt("Name for this device", b.dataset.name); if (name !== null) post("rename", { mac: b.dataset.mac, name }); }
+    else if (confirm("Give this device a fresh allowance for today?")) post("reset", { mac: b.dataset.mac, network: view, day: state.day });
+  });
+  refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>
