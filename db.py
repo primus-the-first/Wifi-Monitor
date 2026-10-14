@@ -17,6 +17,7 @@ SCHEMA = (
     "CREATE TABLE IF NOT EXISTS usage (day TEXT NOT NULL, network TEXT NOT NULL, mac TEXT NOT NULL, "
     "bytes BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (day, network, mac))",
     "CREATE TABLE IF NOT EXISTS batches (id TEXT PRIMARY KEY, received TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS blocks (mac TEXT PRIMARY KEY, since TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS agents (name TEXT PRIMARY KEY, last_seen TEXT NOT NULL, presence TEXT NOT NULL)",
 )
 

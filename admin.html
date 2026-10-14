@@ -119,12 +119,14 @@
     const enforce = !!(cur && cur.enforce);
     document.getElementById("devices").innerHTML = s.devices.map(d => {
       const pct = Math.min(100, d.used / s.cap * 100), cls = d.blocked ? "bad" : pct >= 80 ? "warn" : "";
-      const status = d.blocked ? '<span class="chip blocked">cut off</span>' : d.online ? '<span class="chip on">online</span>'
+      const status = d.manual ? '<span class="chip blocked">blocked</span>' : d.blocked ? '<span class="chip blocked">cut off</span>' : d.online ? '<span class="chip on">online</span>'
         : `<span class="chip off">${d.last_day ? "last " + d.last_day.slice(5) : "no usage"}</span>`;
       return `<tr><td><b>${esc(d.name || "Unnamed device")}</b><div class="muted mono">${esc(d.ip)} ${esc(d.mac)}</div></td>
         <td>${size(d.used)} ${enforce ? `<span class="muted">of ${size(s.cap)}</span><div class="meter ${cls}"><i style="width:${pct}%"></i></div>` : ""}</td>
         <td>${size(d.week)}</td><td>${size(d.total)}</td><td>${status}</td>
-        <td style="white-space:nowrap"><button data-act="rename" data-mac="${esc(d.mac)}" data-name="${esc(d.name)}">Rename</button>
+        <td style="white-space:nowrap"><button data-act="${d.manual ? "unblock" : "block"}" data-mac="${esc(d.mac)}" data-name="${esc(d.name)}"
+            style="${d.manual ? "color:var(--green);border-color:var(--green)" : "color:var(--red);border-color:var(--red)"}">${d.manual ? "Unblock" : "Block"}</button>
+          <button data-act="rename" data-mac="${esc(d.mac)}" data-name="${esc(d.name)}">Rename</button>
           <button data-act="reset" data-mac="${esc(d.mac)}">Reset today</button></td></tr>`;
     }).join("") || '<tr><td colspan="6" class="empty">No devices on this network yet.</td></tr>';
 
@@ -148,7 +150,10 @@
   document.getElementById("saveCap").addEventListener("click", () => { capEdited = false; post("cap", { cap_mb: Number(document.getElementById("cap").value) }); });
   document.getElementById("devices").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
-    if (b.dataset.act === "rename") { const name = prompt("Name for this device", b.dataset.name); if (name !== null) post("rename", { mac: b.dataset.mac, name }); }
+    if (b.dataset.act === "block") {
+      if (confirm("Block " + (b.dataset.name || "this device") + " from the internet?\n\nThey stay connected to the Wi-Fi but get no internet until you unblock them.")) post("block", { mac: b.dataset.mac, blocked: true });
+    } else if (b.dataset.act === "unblock") post("block", { mac: b.dataset.mac, blocked: false });
+    else if (b.dataset.act === "rename") { const name = prompt("Name for this device", b.dataset.name); if (name !== null) post("rename", { mac: b.dataset.mac, name }); }
     else if (confirm("Give this device a fresh allowance for today?")) post("reset", { mac: b.dataset.mac, network: view, day: state.day });
   });
   refresh(); setInterval(refresh, 5000);

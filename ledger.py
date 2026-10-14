@@ -78,6 +78,14 @@ def apply_op(tx, op):
             return False
         tx.execute("INSERT INTO devices (mac, name) VALUES (?, ?) "
                    "ON CONFLICT (mac) DO UPDATE SET name = excluded.name", (mac, str(op.get("name", "")).strip()[:40]))
+    elif kind == "block":  # a manual block: the device gets no internet until it is unblocked
+        mac = op.get("mac")
+        if not _is_mac(mac):
+            return False
+        if op.get("blocked"):
+            tx.execute("INSERT INTO blocks (mac, since) VALUES (?, ?) ON CONFLICT (mac) DO NOTHING", (mac, utcnow()))
+        else:
+            tx.execute("DELETE FROM blocks WHERE mac = ?", (mac,))
     elif kind == "enforce":
         gateway = op.get("gateway")
         if not _is_mac(gateway):
@@ -141,7 +149,8 @@ def server_state(tx, since):
         "networks": {r["gateway"]: {"name": r["name"], "enforce": bool(r["enforce"])}
                      for r in tx.execute("SELECT gateway, name, enforce FROM networks")},
         "devices": {r["mac"]: r["name"] for r in tx.execute("SELECT mac, name FROM devices")},
-        "usage": [{"day": r["day"], "network": r["network"], "mac": r["mac"], "bytes": int(r["bytes"])}
+        "blocked": [r["mac"] for r in tx.execute("SELECT mac FROM blocks")],
+        "usage":[{"day": r["day"], "network": r["network"], "mac": r["mac"], "bytes": int(r["bytes"])}
                   for r in tx.execute("SELECT day, network, mac, bytes FROM usage WHERE day >= ?", (since,))],
     }
 
@@ -208,14 +217,16 @@ def admin_view(db, network=None):
         history = tx.execute("SELECT day, CAST(SUM(bytes) AS BIGINT) AS total FROM usage "
                              "WHERE network = ? AND day >= ? GROUP BY day ORDER BY day", (view, week_start))
         names = {r["mac"]: r["name"] for r in tx.execute("SELECT mac, name FROM devices")}
+        manual = {r["mac"] for r in tx.execute("SELECT mac FROM blocks")}
     here = hosting.get(view, [])
     online = {c["mac"]: c["ip"] for _, p in here for c in p["clients"]}
     blocked = {m for _, p in here for m in p["blocked"]}
     devices = []
-    for mac in set(u["mac"] for u in usage) | set(online):
+    for mac in set(u["mac"] for u in usage) | set(online) | manual:
         u = next((x for x in usage if x["mac"] == mac), {"today": 0, "week": 0, "total": 0, "last_day": None})
         devices.append({"mac": mac, "name": names.get(mac, ""), "ip": online.get(mac, ""), "online": mac in online,
-                        "blocked": mac in blocked, "used": int(u["today"]), "week": int(u["week"]),
+                        "manual": mac in manual, "blocked": mac in manual or mac in blocked,
+                        "used": int(u["today"]), "week": int(u["week"]),
                         "total": int(u["total"]), "last_day": u["last_day"]})
     devices.sort(key=lambda d: (not d["online"], -d["used"], d["name"].lower()))
     seen_now = _ago(ACTIVE_SECONDS)
@@ -239,6 +250,7 @@ def admin_op(db, kind, data):
     ops = {"cap": lambda: {"k": "cap", "mb": data.get("cap_mb")},
            "enforce": lambda: {"k": "enforce", "gateway": data.get("gateway"), "enforce": data.get("enforce")},
            "rename": lambda: {"k": "rename", "mac": data.get("mac"), "name": data.get("name", "")},
+           "block": lambda: {"k": "block", "mac": data.get("mac"), "blocked": data.get("blocked")},
            "reset": lambda: {"k": "reset", "day": data.get("day"), "network": data.get("network", ""), "mac": data.get("mac")}}
     if kind not in ops:
         return False
